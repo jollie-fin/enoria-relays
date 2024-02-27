@@ -28,4 +28,4 @@ C++ was choosen as a language due to the familiarity of the main maintener with 
 - Create folder `build`
 - From `build`, compile with `cmake ..` and `make`. You can install it with `cmake --install .` if necessary
 - Run with `enoria-relays --env [PATH TO YOUR ENV FILE] --automatic` to start it in autonomous mode
-- ~~ Profit ! ~~
+- ~~ Profit ~~
