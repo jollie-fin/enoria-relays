@@ -9,6 +9,7 @@ class Database
 public:
     struct event
     {
+        int64_t id{-1};
         int64_t start;
         int64_t end;
         std::string room;
