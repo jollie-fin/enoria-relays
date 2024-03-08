@@ -21,7 +21,7 @@ static int help(std::string_view name)
                  "--program-event CHANNEL DELAY_MIN DESCRIPTION|"
                  "--api-list-channels|"
                  "--api-list-events BEFORE AFTER|"
-                 "--api-list-current-events|
+                 "--api-list-current-events|"
                  "--list-events]"
               << std::endl;
     return 1;
