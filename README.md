@@ -28,4 +28,5 @@ C++ was choosen as a language due to the familiarity of the main maintener with 
 - Create folder `build`
 - From `build`, compile with `cmake ..` and `make`. You can install it with `cmake --install .` if necessary
 - Run with `enoria-relays --env [PATH TO YOUR ENV FILE] --automatic` to start it in autonomous mode
-- ~~ Profit ! ~~
+
+Every hour, the ICS will be downloaded according to ENORIA_URI and the SQLITE database will be populated. Every minute, the database will be checked, and relays will be put on and off accordingly
