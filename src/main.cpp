@@ -18,8 +18,65 @@ static int help(std::string_view name)
                  "--read-status|"
                  "--read-hw CHANNEL|"
                  "--set-hw CHANNEL VALUE|"
-                 "--program-event CHANNEL DELAY_MIN DESCRIPTION]"
+                 "--program-event CHANNEL DELAY_MIN DESCRIPTION|"
+                 "--api-list-channels|"
+                 "--api-list-events BEFORE AFTER|"
+                 "--api-list-current-events|
+                 "--list-events]"
               << std::endl;
+    return 1;
+}
+
+static void print_events_csv(const Database::events &events)
+{
+    std::cout << "channel;description;start;end;is_current" << std::endl;
+    for (const auto &event : events)
+    {
+        std::cout
+            << event.channel
+            << ";"
+            << event.description
+            << ";"
+            << event.start
+            << ";"
+            << event.end
+            << ";"
+            << event.is_current
+            << std::endl;
+    }
+}
+
+static int api_list_channels()
+{
+    std::cout << "channel;description;state" << std::endl;
+    Database db{env::get(SQLITE_PATH, "test.db")};
+    GPIO gpio{db, env::get(GPIO_CFG, "gpio.cfg")};
+    for (auto channel : gpio.channel_list())
+    {
+        auto state = db.fetch_channel_state(channel);
+        auto description = db.fetch_channel_description(channel);
+        std::cout
+            << channel
+            << ";"
+            << description
+            << ";"
+            << state
+            << std::endl;
+    }
+    return 1;
+}
+
+static int api_list_events(std::string before, std::string after)
+{
+    Database db{env::get(SQLITE_PATH, "test.db")};
+    print_events_csv(db.fetch_between(std::stoll(before), std::stoll(after)));
+    return 1;
+}
+
+static int api_list_current_events()
+{
+    Database db{env::get(SQLITE_PATH, "test.db")};
+    print_events_csv(db.fetch_current());
     return 1;
 }
 
@@ -65,6 +122,7 @@ static int automatic()
                         throw;
                 }
             }
+
             std::cout << "found " << events.events.size() << " events" << std::endl;
             db.update_events(events);
             std::cout
@@ -103,13 +161,28 @@ static int automatic()
     return 0; // Should not happen
 }
 
+static int list_current_and_future_events()
+{
+    Database db{env::get(SQLITE_PATH, "test.db")};
+
+    std::cout
+        << db.current_and_future_events_count()
+        << " events are currently in the present or future"
+        << std::endl;
+    std::cout
+        << " events to come" << std::endl;
+    print_events(db.fetch_all_to_come());
+
+    return 0;
+}
+
 static int read_status()
 {
     Database db{env::get(SQLITE_PATH, "test.db")};
     GPIO gpio{db, env::get(GPIO_CFG, "gpio.cfg")};
     for (auto channel : gpio.channel_list())
     {
-        auto state = gpio.get_channel_from_db(channel);
+        auto state = db.fetch_channel_state(channel);
         std::cout
             << "channel "
             << channel
@@ -213,6 +286,14 @@ int main(int argc, char **argv, char **envp)
             return set_hw(argv[1], argv[2]);
         else if (mode == "--program-event" && argc >= 4)
             return program_event(argv[1], argv[2], argv + 3);
+        else if (mode == "--list-events")
+            return list_current_and_future_events();
+        else if (mode == "--api-list-channels")
+            return api_list_channels();
+        else if (mode == "--api-list-events" && argc >= 3)
+            return api_list_events(argv[1], argv[2]);
+        else if (mode == "--api-list-current-events")
+            return api_list_current_events();
         else
             return help(tool_name);
     }

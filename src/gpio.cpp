@@ -35,11 +35,6 @@ void GPIO::check_channel_or_throw(Channel channel) const
         throw std::runtime_error("Invalid channel in DB : " + std::string{channel});
 }
 
-bool GPIO::get_channel_from_db(GPIO::Channel channel) const
-{
-    return db_.fetch_state(channel);
-}
-
 void GPIO::update_channels(const Database::events &events)
 {
     std::map<Channel, bool> new_state;

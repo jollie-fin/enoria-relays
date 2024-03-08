@@ -69,6 +69,72 @@ Database::events Database::fetch_current() const
         retval.back().description = row[3];
         retval.back().channel = row[4];
         retval.back().state = std::stoi(row[5]);
+        retval.back().is_current = true;
+    }
+    return retval;
+}
+
+// ajout 22/02
+
+Database::events Database::fetch_all_to_come() const
+{
+    auto now = get_time_now();
+    Database::events retval;
+    for (const auto &row : sql_.exec(
+             "SELECT events.START, "
+             "       events.END, "
+             "       events.SALLE, "
+             "       events.ENTETE, "
+             "       relays.CHANNEL,"
+             "       relays.STATE,"
+             "       ? >= events.START - relays.INERTIA AND ? <= events.END "
+             "FROM events "
+             "JOIN relays "
+             "ON events.SALLE LIKE relays.NICKNAME "
+             "WHERE ? <= events.END "
+	     "ORDER BY events.START "
+             "LIMIT 10 ",
+             {now,now,now}))
+    {
+        retval.emplace_back();
+        retval.back().start = std::stoll(row[0]);
+        retval.back().end = std::stoll(row[1]);
+        retval.back().room = row[2];
+        retval.back().description = row[3];
+        retval.back().channel = row[4];
+        retval.back().state = std::stoi(row[5]);
+        retval.back().is_current = std::stoi(row[6]);
+    }
+    return retval;
+}
+
+Database::events Database::fetch_between(int64_t before, int64_t after) const
+{
+    auto now = get_time_now();
+    Database::events retval;
+    for (const auto &row : sql_.exec(
+             "SELECT events.START, "
+             "       events.END, "
+             "       events.SALLE, "
+             "       events.ENTETE, "
+             "       relays.CHANNEL,"
+             "       relays.STATE ,"
+             "       ? >= events.START - relays.INERTIA AND ? <= events.END "
+             "FROM events "
+             "JOIN relays "
+             "ON events.SALLE LIKE relays.NICKNAME "
+             "WHERE ? <= events.START "
+             "AND events.START <= ?",
+             {now, now, before, after}))
+    {
+        retval.emplace_back();
+        retval.back().start = std::stoll(row[0]);
+        retval.back().end = std::stoll(row[1]);
+        retval.back().room = row[2];
+        retval.back().description = row[3];
+        retval.back().channel = row[4];
+        retval.back().state = std::stoi(row[5]);
+        retval.back().is_current = std::stoi(row[6]);
     }
     return retval;
 }
@@ -130,15 +196,26 @@ void Database::update_events(const ics::events &events)
     transaction.success();
 }
 
-bool Database::fetch_state(std::string_view channel) const
+bool Database::fetch_channel_state(std::string_view channel) const
 {
-    auto update_sql =
+    auto sql =
         "SELECT relays.STATE FROM relays "
         "WHERE CHANNEL = ?";
-    auto res = sql_.exec(update_sql, {channel});
+    auto res = sql_.exec(sql, {channel});
     if (res.empty())
         throw std::runtime_error("Unknown channel " + std::string{channel});
     return res[0][0] == "1";
+}
+
+std::string Database::fetch_channel_description(std::string_view channel) const
+{
+    auto sql =
+        "SELECT relays.FULLNAME FROM relays "
+        "WHERE CHANNEL = ?";
+    auto res = sql_.exec(sql, {channel});
+    if (res.empty())
+        throw std::runtime_error("Unknown channel " + std::string{channel});
+    return res[0][0];
 }
 
 void Database::update_channel(std::string_view channel, bool state)
