@@ -3,7 +3,15 @@
 #include <curl/curl.h>
 #include <stdexcept>
 #include <iostream>
-#include <format>
+#ifndef __cpp_lib_format
+  // std::format polyfill using fmtlib
+  #include <fmt/core.h>
+  namespace std {
+  using fmt::format;
+  }
+#else
+  #include <format>
+#endif
 #include <cstdlib>
 #include "ics.h"
 #include "utils.h"
