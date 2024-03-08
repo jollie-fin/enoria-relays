@@ -36,7 +36,7 @@ Database::events Database::fetch_future() const
              "       relays.CHANNEL,"
              "       relays.STATE, "
              "       0, "
-             "       e.ID"
+             "       e.ID "
              "FROM events e "
              "JOIN ("
              "     SELECT MIN(events.start) as start,"
@@ -162,9 +162,8 @@ void Database::update_events(const ics::events &ics_events)
     auto now = get_time_now();
     auto one_month = 86400 * 30;
     auto drop_old_sql =
-        "DELETE events WHERE "
-        "events.END < ? - ?";
-    sql_.exec(drop_old_sql, {now, one_month});
+        "DELETE FROM events WHERE events.END < ?";
+    sql_.exec(drop_old_sql, {now - one_month});
 
     events db_events;
     auto find_id_sql =
@@ -185,6 +184,7 @@ void Database::update_events(const ics::events &ics_events)
         }
         else if (e.start > now)
         {
+            std::cout << ("couldn't find |" + std::to_string(e.start) + "| |" + std::to_string(e.end) + "| |" + e.location + "| |" + e.summary + "|") << std::endl;
             events_to_add.emplace_back(event{
                 .start = e.start,
                 .end = e.end,
@@ -194,7 +194,7 @@ void Database::update_events(const ics::events &ics_events)
         }
     }
     auto get_ids_sql = "SELECT id FROM events WHERE events.START > ?";
-    auto delete_id_sql = "DELETE events WHERE ID = ?";
+    auto delete_id_sql = "DELETE FROM events WHERE ID = ?";
     for (const auto &row : sql_.exec(get_ids_sql, {now}))
     {
         auto id = std::stoll(row[0]);
@@ -204,7 +204,8 @@ void Database::update_events(const ics::events &ics_events)
 
     for (const auto &e : events_to_add)
         add_event(e);
-
+    // if (!events_to_add.empty())
+    //     throw std::runtime_error{"leaving"};
     transaction.success();
 }
 

@@ -29,10 +29,12 @@ static int help(std::string_view name)
 
 static void print_events_csv(const Database::events &events)
 {
-    std::cout << "channel;description;start;end;is_current" << std::endl;
+    std::cout << "id;channel;description;start;end;is_current" << std::endl;
     for (const auto &event : events)
     {
         std::cout
+            << event.id
+            << ";"
             << event.channel
             << ";"
             << event.description

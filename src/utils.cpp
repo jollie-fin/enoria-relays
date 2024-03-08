@@ -2,14 +2,15 @@
 #include <fstream>
 #include <stdexcept>
 #include <sstream>
-#include <ctime>
+#include <chrono>
 
 #include <iostream>
 
 int64_t get_time_now()
 {
-    std::time_t t = std::time(0); // get time now
-    return t;
+    auto now = std::chrono::system_clock::now();
+    return std::chrono::duration_cast<std::chrono::seconds>(
+                   now.time_since_epoch()).count();
 }
 
 bool exists(const std::string &path)

@@ -2,20 +2,36 @@
 #include <cstdio>
 #include <curl/curl.h>
 #include <stdexcept>
-#include <ctime>
 #include <iostream>
+#include <format>
+#include <cstdlib>
 #include "ics.h"
 #include "utils.h"
-
+#include <memory>
+#include <array>
 namespace ics
 {
-    static int64_t to_timestamp(std::string_view s)
+    static int64_t to_timestamp(std::string_view s, std::string_view timezone)
     {
-        std::string str{s};
-        tm t;
-        strptime(str.c_str(), "%Y%m%dT%H%M%S", &t);
-        auto timestamp = mktime(&t);
-        return timestamp;
+        auto y = s.substr(0, 4);
+        auto m = s.substr(4, 2);
+        auto d = s.substr(6, 2);
+        auto H = s.substr(9, 2);
+        auto M = s.substr(11, 2);
+        auto S = s.substr(13, 2);
+
+        auto cmd = std::format("date --date='TZ=\"{}\" {}-{}-{}T{}:{}:{}' +%s",
+                               timezone, y, m, d, H, M, S);
+        std::array<char, 128> buffer;
+        std::string result;
+        std::unique_ptr<FILE, decltype(&pclose)>
+            pipe(popen(cmd.c_str(), "r"),
+                 pclose);
+        if (!pipe)
+            throw std::runtime_error("popen() failed!");
+        while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe.get()) != nullptr)
+            result += buffer.data();
+        return std::stoll(result);
     }
 
     struct token
@@ -31,19 +47,22 @@ namespace ics
     events parse_events(const tokens &tok)
     {
         events retval;
+        std::string timezone;
         vevent current_vevent;
         for (const auto &t : tok)
         {
             if (t.key == "NAME" && retval.paroisse == "")
                 retval.paroisse = t.value;
+            else if (t.key == "TZID")
+                timezone = t.value;
             else if (t.key == "BEGIN" && t.value == "VEVENT")
                 current_vevent = vevent{};
             else if (t.key == "END" && t.value == "VEVENT")
                 retval.events.emplace_back(current_vevent);
             else if (t.key == "DTSTART")
-                current_vevent.start = to_timestamp(t.value);
+                current_vevent.start = to_timestamp(t.value, timezone);
             else if (t.key == "DTEND")
-                current_vevent.end = to_timestamp(t.value);
+                current_vevent.end = to_timestamp(t.value, timezone);
             else if (t.key == "LOCATION")
                 current_vevent.location = t.value;
             else if (t.key == "SUMMARY")
