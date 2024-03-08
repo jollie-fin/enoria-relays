@@ -22,6 +22,7 @@ public:
     void add_event(const event &ev);
     void update_events(const ics::events &ev);
     void update_channel(std::string_view channel, bool state);
+    events fetch_all_to_come() const;
     events fetch_between(int64_t before, int64_t after) const;
     events fetch_current() const;
     bool fetch_channel_state(std::string_view channel) const;
