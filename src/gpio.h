@@ -12,7 +12,6 @@ public:
     using Channel = std::string_view;
     GPIO(Database &db, std::string_view path);
     void set_channel(Channel channel, bool state);
-    bool get_channel_from_db(GPIO::Channel channel) const;
     void check_channel_or_throw(Channel channel) const;
     bool get_hw_channel(Channel channel) const;
     void update_channels(const Database::events &events);

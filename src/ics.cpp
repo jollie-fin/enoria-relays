@@ -3,43 +3,37 @@
 #include <curl/curl.h>
 #include <stdexcept>
 #include <iostream>
+#include <chrono>
 #ifndef __cpp_lib_format
-  // std::format polyfill using fmtlib
-  #include <fmt/core.h>
-  namespace std {
-  using fmt::format;
-  }
+// std::format polyfill using fmtlib
+#include <fmt/core.h>
+namespace std
+{
+    using fmt::format;
+}
 #else
-  #include <format>
+#include <format>
 #endif
-#include <cstdlib>
+// To have chrono::parse
+#include "date/date.h"
+#include "date/tz.h"
+#include <sstream>
 #include "ics.h"
 #include "utils.h"
-#include <memory>
-#include <array>
+
 namespace ics
 {
     static int64_t to_timestamp(std::string_view s, std::string_view timezone)
     {
-        auto y = s.substr(0, 4);
-        auto m = s.substr(4, 2);
-        auto d = s.substr(6, 2);
-        auto H = s.substr(9, 2);
-        auto M = s.substr(11, 2);
-        auto S = s.substr(13, 2);
+        std::istringstream sstr{std::string{s}};
+        std::chrono::sys_seconds tp;
+        sstr >> date::parse(std::string{"%Y%m%dT%H%M%S"}, tp);
 
-        auto cmd = std::format("date --date='TZ=\"{}\" {}-{}-{}T{}:{}:{}' +%s",
-                               timezone, y, m, d, H, M, S);
-        std::array<char, 128> buffer;
-        std::string result;
-        std::unique_ptr<FILE, decltype(&pclose)>
-            pipe(popen(cmd.c_str(), "r"),
-                 pclose);
-        if (!pipe)
-            throw std::runtime_error("popen() failed!");
-        while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe.get()) != nullptr)
-            result += buffer.data();
-        return std::stoll(result);
+        const auto *zone = date::locate_zone(timezone);
+        const auto *utc = date::locate_zone("UTC");
+        auto local_tp = utc->to_local(tp);
+        auto zoned_tp = zone->to_sys(local_tp);
+        return zoned_tp.time_since_epoch().count();
     }
 
     struct token

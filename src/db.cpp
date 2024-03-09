@@ -184,7 +184,6 @@ void Database::update_events(const ics::events &ics_events)
         }
         else if (e.start > now)
         {
-            std::cout << ("couldn't find |" + std::to_string(e.start) + "| |" + std::to_string(e.end) + "| |" + e.location + "| |" + e.summary + "|") << std::endl;
             events_to_add.emplace_back(event{
                 .start = e.start,
                 .end = e.end,
