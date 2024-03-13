@@ -17,6 +17,7 @@ ${PROJECT_SOURCE_DIR}/src/ics.cpp
 ${PROJECT_SOURCE_DIR}/src/sqlite.cpp
 ${PROJECT_SOURCE_DIR}/src/usbrelay.cpp
 ${PROJECT_SOURCE_DIR}/src/utils.cpp
+${PROJECT_SOURCE_DIR}/src/frisquetconnect.cpp
 ${PROJECT_SOURCE_DIR}/src/date-submodule/src/tz.cpp
 )
 target_link_libraries(LibsModule -lcurl)

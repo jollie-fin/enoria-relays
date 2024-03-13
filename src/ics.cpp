@@ -23,17 +23,14 @@ namespace std
 
 namespace ics
 {
-    static int64_t to_timestamp(std::string_view s, std::string_view timezone)
+    static timepoint parse_tp(std::string_view s, std::string_view timezone)
     {
         std::istringstream sstr{std::string{s}};
-        std::chrono::sys_seconds tp;
-        sstr >> date::parse(std::string{"%Y%m%dT%H%M%S"}, tp);
+        date::local_seconds local_tp;
+        sstr >> date::parse(std::string{"%Y%m%dT%H%M%S"}, local_tp);
 
         const auto *zone = date::locate_zone(timezone);
-        const auto *utc = date::locate_zone("UTC");
-        auto local_tp = utc->to_local(tp);
-        auto zoned_tp = zone->to_sys(local_tp);
-        return zoned_tp.time_since_epoch().count();
+        return zone->to_sys(local_tp);
     }
 
     struct token
@@ -62,9 +59,9 @@ namespace ics
             else if (t.key == "END" && t.value == "VEVENT")
                 retval.events.emplace_back(current_vevent);
             else if (t.key == "DTSTART")
-                current_vevent.start = to_timestamp(t.value, timezone);
+                current_vevent.start = parse_tp(t.value, timezone);
             else if (t.key == "DTEND")
-                current_vevent.end = to_timestamp(t.value, timezone);
+                current_vevent.end = parse_tp(t.value, timezone);
             else if (t.key == "LOCATION")
                 current_vevent.location = t.value;
             else if (t.key == "SUMMARY")
@@ -110,55 +107,11 @@ namespace ics
         return retval;
     }
 
-    static size_t writeMemoryCallback(void *contents, size_t size, size_t nmemb,
-                                      void *userp)
-    {
-        size_t realsize = size * nmemb;
-        auto &mem = *static_cast<std::string *>(userp);
-        mem.append(static_cast<char *>(contents), realsize);
-        return realsize;
-    }
-
-    std::string download(std::string_view url)
-    {
-        if (url.starts_with("file://"))
-        {
-            return cat(std::string{url.substr(7)});
-        }
-        CURL *curl_handle;
-        CURLcode res;
-
-        std::string chunk;
-
-        curl_global_init(CURL_GLOBAL_ALL);
-
-        curl_handle = curl_easy_init();
-        curl_easy_setopt(curl_handle, CURLOPT_VERBOSE, 0L);
-        curl_easy_setopt(curl_handle, CURLOPT_URL, url.data());
-        curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, writeMemoryCallback);
-        curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, &chunk);
-        curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "libcurl-agent/1.0");
-
-        // added options that may be required
-        curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);  // redirects
-        curl_easy_setopt(curl_handle, CURLOPT_HTTPPROXYTUNNEL, 1L); // corp. proxies etc.
-        // curl_easy_setopt(curl_handle, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
-
-        res = curl_easy_perform(curl_handle);
-
-        if (res != CURLE_OK)
-        {
-            throw std::runtime_error("Impossible to retrieve " + std::string{url} + " : " + curl_easy_strerror(res));
-        }
-
-        curl_easy_cleanup(curl_handle);
-        curl_global_cleanup();
-        return chunk;
-    }
-
     events fetch_from_uri(std::string_view path)
     {
-        auto t = download(path);
+        auto t = path.starts_with("file://")
+                 ? cat(std::string{path.substr(7)})
+                 : download(path);
         auto tokens = split(t);
         return parse_events(tokens);
     }

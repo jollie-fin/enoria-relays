@@ -4,13 +4,13 @@
 #include <string>
 #include <vector>
 #include <string_view>
-
+#include "utils.h"
 namespace ics
 {
     struct vevent
     {
-        int64_t start;
-        int64_t end;
+        timepoint start;
+        timepoint end;
         std::string summary;
         std::string status;
         std::string location;

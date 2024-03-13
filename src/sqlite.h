@@ -3,6 +3,7 @@
 #include <string_view>
 #include <vector>
 #include <variant>
+#include "utils.h"
 
 struct sqlite3;
 class SQLite
@@ -26,7 +27,7 @@ public:
     };
 
     using SqlRow = std::vector<std::string>;
-    using Param = std::variant<std::string_view, int64_t, double>;
+    using Param = std::variant<std::string_view, int64_t, double, timepoint>;
     using Params = std::vector<Param>;
     SQLite(std::string_view path);
     ~SQLite();

@@ -35,6 +35,23 @@ void GPIO::check_channel_or_throw(Channel channel) const
         throw std::runtime_error("Invalid channel in DB : " + std::string{channel});
 }
 
+void GPIO::dispatch_events(const Database::events &events)
+{
+    std::map<Channel, Database::events> dispatch;
+    for (const auto &e : events)
+        dispatch[e.channel].emplace_back(e);
+
+    for (const auto &[channel, events] : dispatch)
+        if (channel_name_to_hw_gpio_.count(channel))
+            channel_name_to_hw_gpio_[channel].update_events(events);
+}
+
+void GPIO::refresh_channels()
+{
+    for (auto &[channel, gpio] : channel_name_to_hw_gpio_)
+        gpio.refresh();
+}
+
 void GPIO::update_channels(const Database::events &events)
 {
     std::map<Channel, bool> new_state;

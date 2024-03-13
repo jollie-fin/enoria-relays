@@ -15,6 +15,9 @@ public:
     void check_channel_or_throw(Channel channel) const;
     bool get_hw_channel(Channel channel) const;
     void update_channels(const Database::events &events);
+    void dispatch_events(const Database::events &events);
+    void refresh_channels();
+
     std::vector<Channel> channel_list() const;
     void force_sync();
 

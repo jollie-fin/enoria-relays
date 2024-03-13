@@ -1,8 +1,9 @@
 #pragma once
 
 #include <string_view>
-#include <variant>
-#include "usbrelay.h"
+#include <memory>
+
+#include "db.h"
 
 class HWGpio
 {
@@ -12,25 +13,29 @@ public:
     HWGpio();
     bool get() const;
     void set(bool st);
+    void update_events(const Database::events &events);
+    void refresh();
+
+    struct GPIOHandler
+    {
+        GPIOHandler(std::string = ""){}
+        virtual bool get() const { return false; }
+        virtual void set(bool) {}
+        virtual void update_events(const Database::events &events) {}
+        virtual void refresh() {}
+    };
+
+    static std::unique_ptr<GPIOHandler> make_impl(Channel);
 
 protected:
-    struct RawGPIO
+    struct RawGPIO : public GPIOHandler
     {
         RawGPIO(Channel hw);
-        bool get() const;
-        void set(bool);
+        bool get() const override;
+        void set(bool) override;
         std::string hw_;
     };
 
-    struct Nada
-    {
-        bool get() const { return false; }
-        void set(bool) {}
-        std::string dummy;
-    };
-
-    using Implementation = std::variant<RawGPIO, USBRelay, Nada>;
-    static Implementation make_impl(HWGpio::Channel ch);
-    Implementation impl_{Nada{""}};
+    std::unique_ptr<GPIOHandler> impl_;
     bool is_inverted_{false};
 };

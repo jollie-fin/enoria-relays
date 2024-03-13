@@ -5,25 +5,21 @@
 #include "hwgpio.h"
 #include "utils.h"
 
-HWGpio::Implementation HWGpio::make_impl(HWGpio::Channel channel)
+#include "usbrelay.h"
+#include "frisquetconnect.h"
+
+std::unique_ptr<HWGpio::GPIOHandler> HWGpio::make_impl(Channel channel)
 {
-    std::string strip{channel[0] == '!' ? channel.substr(1) : channel};
-    auto category_start = 0;
-    auto category_end = strip.find(':');
-    if (category_end == strip.npos)
-        throw std::runtime_error("Invalid HWGPIO :" + strip);
-
-    auto id_start = category_end + 1;
-    auto id_end = strip.npos;
-
-    auto category = strip.substr(category_start, category_end - category_start);
-    auto id = strip.substr(id_start, id_end - id_start);
-
+    auto [category, id] = split2(channel, ':');
+    category = category[0] == '!' ? category.substr(1) : category;
     if (category.starts_with("gpio"))
-        return RawGPIO{id};
+        return std::make_unique<RawGPIO>(id);
     if (category.starts_with("usbrelay"))
-        return USBRelay{id};
-    throw std::runtime_error("Invalid HWGPIO :" + strip);
+        return std::make_unique<USBRelay>(id);
+    if (category.starts_with("frisquetconnect"))
+        return std::make_unique<FrisquetConnect>(id);
+    throw std::runtime_error("Invalid HWGPIO :" + std::string{category});
+    return {};
 }
 
 HWGpio::RawGPIO::RawGPIO(HWGpio::Channel hw) : hw_("gpio" + std::string{hw})
@@ -48,9 +44,7 @@ HWGpio::HWGpio()
 void HWGpio::set(bool value)
 {
     value = is_inverted_ ? !value : value;
-    std::visit([&](auto &a)
-               { a.set(value); },
-               impl_);
+    impl_->set(value);
 }
 
 void HWGpio::RawGPIO::set(bool value)
@@ -60,12 +54,19 @@ void HWGpio::RawGPIO::set(bool value)
 
 bool HWGpio::get() const
 {
-    auto value =
-        std::visit([&](auto &a)
-                   { return a.get(); },
-                   impl_);
+    auto value = impl_->get();
     value = is_inverted_ ? !value : value;
     return value;
+}
+
+void HWGpio::update_events(const Database::events &events)
+{
+    impl_->update_events(events);
+}
+
+void HWGpio::refresh()
+{
+    impl_->refresh();
 }
 
 bool HWGpio::RawGPIO::get() const

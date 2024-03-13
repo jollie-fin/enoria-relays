@@ -5,10 +5,15 @@
 #include <string>
 #include <unistd.h>
 #include "ics.h"
+#include <chrono>
+
 #define SQLITE_PATH "SQLITE_PATH"
 #define GPIO_CFG "GPIO_CFG"
 #define ENORIA_URI "ENORIA_URI"
+
 #include "utils.h"
+
+using namespace std::chrono_literals;
 
 static int help(std::string_view name)
 {
@@ -89,75 +94,126 @@ static void print_events(const Database::events &events)
             << "    "
             << "Event '" << e.description
             << "' in room '" << e.room
-            << "' from '" << convert_time(e.start)
-            << "' to '" << convert_time(e.end)
+            << "' from '" << e.start
+            << "' to '" << e.end
             << "' on channel '" << e.channel
             << "'" << std::endl;
 }
+
 static int automatic()
 {
     Database db{env::get(SQLITE_PATH, "test.db")};
     GPIO gpio{db, env::get(GPIO_CFG, "gpio.cfg")};
 
-    while (1)
+    class Timer
     {
-        try
+    public:
+        Timer(std::string_view name,
+              std::chrono::duration<long> period,
+              std::function<void()> lambda)
+            : name_(name),
+              period_(period),
+              lambda_(lambda)
         {
-            int count = 5;
-            ics::events events;
-            while (1)
+        }
+
+        void operator()()
+        {
+            auto now = std::chrono::steady_clock::now();
+            if (now - previous_ > period_)
             {
+                std::cout << "Timer:" << name_ << std::endl;
+                previous_ = now;
                 try
                 {
-                    std::cout << "Fetching new calendar from Enoria... " << std::flush;
-                    events = ics::fetch_from_uri(env::get(ENORIA_URI, "http://invalid"));
-                    std::cout << "Ok!" << std::endl;
-                    break;
+                    lambda_();
                 }
                 catch (std::exception &e)
                 {
-                    std::cout << " failed :\n"
-                              << "    " << e.what() << std::endl;
-                    sleep(3);
-                    count--;
-                    if (count == 0)
-                        throw;
+                    std::cout << " failed : " << e.what() << std::endl;
                 }
             }
+        }
 
-            std::cout << "found " << events.events.size() << " events" << std::endl;
-            db.update_events(events);
-            std::cout
-                << db.current_and_future_events_count()
-                << " events are curently in the present or future"
-                << std::endl;
-            std::cout
-                << "  Current events" << std::endl;
-            print_events(db.fetch_current());
-            std::cout
-                << "  Future events" << std::endl;
-            print_events(db.fetch_future());
-        }
-        catch (std::exception &e)
-        {
-            std::cout << " failed : " << e.what() << std::endl;
-        }
-        for (int minute = 0; minute < 60; minute++)
-        {
-            try
-            {
-                std::cout << "Fetching current events from database... " << std::flush;
-                auto current_state = db.fetch_current();
-                std::cout << "ok" << std::endl;
-                print_events(current_state);
-                gpio.update_channels(current_state);
-            }
-            catch (std::exception &e)
-            {
-                std::cout << " failed : " << e.what() << std::endl;
-            }
-            sleep(60);
-        }
+    protected:
+        std::string name_;
+        std::function<void()> lambda_;
+        std::chrono::steady_clock::time_point previous_;
+        std::chrono::duration<long> period_;
+    };
+
+    std::vector<Timer> timers{
+        {"Fetch-enoria",
+         1h,
+         [&]()
+         {
+             int count = 5;
+             ics::events events;
+             while (1)
+             {
+                 try
+                 {
+                     std::cout << "Fetching new calendar from Enoria... " << std::flush;
+                     events = ics::fetch_from_uri(env::get(ENORIA_URI, "http://invalid"));
+                     std::cout << "Ok!" << std::endl;
+                     break;
+                 }
+                 catch (std::exception &e)
+                 {
+                     std::cout << " failed :\n"
+                               << "    " << e.what() << std::endl;
+                     sleep(3);
+                     count--;
+                     if (count == 0)
+                         throw;
+                 }
+             }
+
+             std::cout << "found " << events.events.size() << " events" << std::endl;
+             db.update_events(events);
+             std::cout
+                 << db.current_and_future_events_count()
+                 << " events are curently in the present or future"
+                 << std::endl;
+             std::cout
+                 << "  Current events" << std::endl;
+             print_events(db.fetch_current());
+             std::cout
+                 << "  Future events" << std::endl;
+             print_events(db.fetch_future());
+         }},
+        {"Update-GPIO",
+         1min,
+         [&]()
+         {
+             std::cout << "Fetching current events from database... " << std::flush;
+             auto current_state = db.fetch_current();
+             std::cout << "ok" << std::endl;
+             print_events(current_state);
+             gpio.update_channels(current_state);
+         }},
+        {"Update-programmation",
+         30min,
+         [&]()
+         {
+             auto now = get_time_now();
+             auto events = db.fetch_between(
+                 now - 24h,
+                 now + 7 * 24h);
+             gpio.dispatch_events(events);
+         }},
+        {"Refresh-channels",
+         5min,
+         [&]()
+         {
+             gpio.refresh_channels();
+         }}};
+
+    while (1)
+    {
+        for (auto &i : timers)
+            i();
+        sleep(1);
     }
 
     return 0; // Should not happen
@@ -240,9 +296,9 @@ static int program_event(std::string channel, std::string length_min, char **des
         description += i == 0 ? "" : " ";
         description += description_words[i];
     }
-    int64_t start = get_time_now();
-    int64_t end = start + std::stoll(length_min) * 60;
-    start -= 30 * 60; // start is 30 min in the past
+    auto start = get_time_now();
+    auto end = start + std::stoll(length_min) * 1min;
+    start -= 30min; // start is 30 min in the past
 
     Database db{env::get(SQLITE_PATH, "test.db")};
     Database::event e{.start = start, .end = end, .room = channel, .channel = channel, .description = description};

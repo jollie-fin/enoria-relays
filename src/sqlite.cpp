@@ -75,6 +75,13 @@ std::vector<SQLite::SqlRow> SQLite::exec(std::string_view req, const SQLite::Par
                                       bind_idx,
                                       i);
                               },
+                              [&](timepoint i)
+                              {
+                                  sqlite3_bind_int64(
+                                      stmt,
+                                      bind_idx,
+                                      to_timestamp(i));
+                              },
                               [&](double i)
                               {
                                   sqlite3_bind_double(

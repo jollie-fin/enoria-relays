@@ -4,13 +4,14 @@
 #include <string>
 #include <memory>
 #include <stdexcept>
+#include "hwgpio.h"
 struct hid_device_;
-class USBRelay
+class USBRelay : public HWGpio::GPIOHandler
 {
 public:
     USBRelay(std::string_view id);
-    void set(bool);
-    bool get() const;
+    void set(bool) override;
+    bool get() const override;
 
 protected:
     unsigned char hw_state() const;

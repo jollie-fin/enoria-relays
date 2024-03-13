@@ -1,9 +1,10 @@
 #include "db.h"
 #include "utils.h"
-#include <ctime>
 #include <string>
 #include <iostream>
 #include <set>
+
+using namespace std::chrono_literals;
 
 Database::Database(std::string_view path) : sql_(path)
 {
@@ -14,8 +15,8 @@ static Database::event create_event(const SQLite::SqlRow &row)
     if (row.size() != 8)
         throw std::runtime_error{"impossible to create event from sql row"};
     Database::event retval;
-    retval.start = std::stoll(row[0]);
-    retval.end = std::stoll(row[1]);
+    retval.start = from_timestamp(row[0]);
+    retval.end = from_timestamp(row[1]);
     retval.room = row[2];
     retval.description = row[3];
     retval.channel = row[4];
@@ -108,6 +109,13 @@ Database::events Database::fetch_all_to_come() const
     return retval;
 }
 
+Database::events Database::fetch_between(
+    timepoint before,
+    timepoint after) const
+{
+    return fetch_between(to_timestamp(before), to_timestamp(after));
+}
+
 Database::events Database::fetch_between(int64_t before, int64_t after) const
 {
     auto now = get_time_now();
@@ -160,10 +168,9 @@ void Database::update_events(const ics::events &ics_events)
 {
     auto transaction = sql_.transaction();
     auto now = get_time_now();
-    auto one_month = 86400 * 30;
     auto drop_old_sql =
         "DELETE FROM events WHERE events.END < ?";
-    sql_.exec(drop_old_sql, {now - one_month});
+    sql_.exec(drop_old_sql, {now - std::chrono::months{1}});
 
     events db_events;
     auto find_id_sql =
@@ -232,7 +239,7 @@ std::string Database::fetch_channel_description(std::string_view channel) const
 
 void Database::update_channel(std::string_view channel, bool state)
 {
-    auto now = std::to_string(get_time_now());
+    auto now = std::to_string(to_timestamp(get_time_now()));
     auto state_str = std::to_string(state);
     auto update_sql =
         "UPDATE relays "
