@@ -18,7 +18,7 @@ public:
 
     struct GPIOHandler
     {
-        GPIOHandler(std::string = ""){}
+        GPIOHandler(std::string = "") {}
         virtual bool get() const { return false; }
         virtual void set(bool) {}
         virtual void update_events(const Database::events &events) {}

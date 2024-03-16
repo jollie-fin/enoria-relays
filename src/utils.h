@@ -4,16 +4,18 @@
 #include <string_view>
 #include <chrono>
 #include "json.hpp"
+namespace chrono = std::chrono;
 using timepoint = std::chrono::time_point<std::chrono::system_clock, std::chrono::seconds>;
 
 std::string download(std::string_view url,
-                  const std::map<std::string_view, std::string_view> &headers = {},
-                  const nlohmann::json &payload = {});
+                     const std::map<std::string_view, std::string_view> &headers = {},
+                     const nlohmann::json &payload = {});
 
 int64_t to_timestamp(auto tp)
 {
     return std::chrono::duration_cast<std::chrono::seconds>(
-        tp.time_since_epoch()).count();
+               tp.time_since_epoch())
+        .count();
 }
 
 timepoint from_timestamp(int64_t);

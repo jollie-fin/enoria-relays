@@ -1,11 +1,9 @@
 #include <iostream>
 
 #include <sstream>
-#include <curl/curl.h>
 #include <string_view>
 
 #include <chrono>
-#include <unistd.h>
 #include <algorithm>
 
 #include "json.hpp"
@@ -21,8 +19,8 @@ constexpr auto AUTH_URL = "https://fcutappli.frisquet.com/api/v1/authentificatio
 constexpr auto API_URL = "https://fcutappli.frisquet.com/api/v1/sites/";
 constexpr auto ORDRES_URL = "https://fcutappli.frisquet.com/api/v1/ordres/";
 
-constexpr auto TOKEN_RENEWAL_PERIOD = std::chrono::minutes{30};
-constexpr auto INFOS_RENEWAL_PERIOD = std::chrono::minutes{5};
+constexpr auto TOKEN_RENEWAL_PERIOD = 30min;
+constexpr auto INFOS_RENEWAL_PERIOD = 5min;
 
 class RequestFailure : public std::exception
 {
@@ -85,7 +83,7 @@ static std::string get_token(std::string_view email, std::string_view password)
 
 void FrisquetConnect::refresh()
 {
-    auto now = std::chrono::steady_clock::now();
+    auto now = chrono::steady_clock::now();
     if (now - token_time_ > TOKEN_RENEWAL_PERIOD)
     {
         token_time_ = now;
@@ -102,14 +100,57 @@ void FrisquetConnect::refresh()
     }
 }
 
-int FrisquetConnect::get_mode(std::string_view zone) const
+void FrisquetConnect::set_boiler_mode(mode_e mode)
+{
+    pass_order({{"SELECTEUR_" + zone_, static_cast<int>(mode)}});
+}
+
+FrisquetConnect::program_week FrisquetConnect::get_programmation_week() const
 {
     for (const auto &info_zone : infos_["zones"])
     {
-        if (info_zone["identifiant"] == zone)
-            return info_zone["carac_zone"]["SELECTEUR"];
+        if (info_zone["identifiant"] == zone_)
+        {
+            program_week retval;
+            for (const auto &day : info_zone["programmation"])
+            {
+                int day_of_week = day["jour"];
+                day_of_week = (day_of_week + 6) % 7;
+                int i = 0;
+                for (auto half_hour : day["plages"])
+                    retval[day_of_week][i++] = static_cast<int>(half_hour);
+            }
+            return retval;
+        }
     }
-    throw std::runtime_error("Impossible to find " + std::string{zone});
+    throw std::runtime_error("Impossible to find " + std::string{zone_});
+}
+
+FrisquetConnect::program_day FrisquetConnect::get_programmation_day(int day_of_week) const
+{
+    return get_programmation_week()[day_of_week % 7];
+}
+
+FrisquetConnect::mode_e FrisquetConnect::get_boiler_mode() const
+{
+    for (const auto &info_zone : infos_["zones"])
+    {
+        if (info_zone["identifiant"] == zone_)
+        {
+            int selecteur = info_zone["carac_zone"]["SELECTEUR"];
+            switch (selecteur)
+            {
+            case 5:
+            case 6:
+            case 7:
+            case 8:
+                return static_cast<mode_e>(selecteur);
+            default:
+                throw std::runtime_error(std::to_string(selecteur) + " is an unknown value for SELECTEUR");
+            };
+        }
+    }
+    throw std::runtime_error("Impossible to find " + std::string{zone_});
 }
 
 std::string FrisquetConnect::get_timezone() const
@@ -141,27 +182,34 @@ bool FrisquetConnect::is_boiler_connected() const
     return true;
 }
 
+static auto decompose_now(std::string_view timezone)
+{
+    const auto *tz = date::locate_zone(timezone);
+    auto to_local = [&](auto tp)
+    {
+        return tz->to_local(tp);
+    };
+
+    auto now = to_local(get_time_now());
+    auto start_day = chrono::floor<chrono::days>(now);
+    date::weekday wd{start_day};
+    int day_of_week = (wd.c_encoding() + 6) % 7; // 0 = Monday
+    int programmation_index = (now - start_day) / 30min;
+
+    return std::make_tuple(start_day, day_of_week, programmation_index);
+}
+
 bool FrisquetConnect::get() const
 {
-    const auto *tz = date::locate_zone(get_timezone());
+    auto [start_day, day_of_week, programmation_index] = decompose_now(get_timezone());
 
-    auto now = tz->to_local(get_time_now());
-    auto start_day = std::chrono::floor<std::chrono::days>(now);
-    date::weekday wd{start_day};
-    int day_of_week = wd.c_encoding(); // 0 = Sunday
-
-    auto programmation_index = (now - start_day) / std::chrono::minutes{30};
-    for (const auto &zone : infos_["zones"])
-        if (zone["identifiant"] == zone_)
-            for (const auto &day : zone["programmation"])
-                if (day["jour"] == day_of_week)
-                    return day["plages"][programmation_index] == 1;
-    throw std::runtime_error("Impossible to find the right slot in programmation of FrisquetConnect");
+    auto today = get_programmation_day(day_of_week);
+    return today[programmation_index] == 1;
 }
 
 void FrisquetConnect::pass_order(const std::map<std::string, json> &data) const
 {
-    auto url = std::string{ORDRES_URL} + chaudiere_ + "?token=aa" + token_;
+    auto url = std::string{ORDRES_URL} + chaudiere_ + "?token=" + token_;
     std::map<std::string_view, std::string_view> headers{
         {"Host", "fcutappli.frisquet.com"},
         {"Accept", "*/*"},
@@ -170,19 +218,14 @@ void FrisquetConnect::pass_order(const std::map<std::string, json> &data) const
 
     json payload;
     for (const auto &[key, value] : data)
-        payload.emplace_back(json::object({{"cle", key}, {"valeur", value}}));
+    {
+        json stringified = value.dump();
+        payload.emplace_back(json::object({{"cle", key}, {"valeur", stringified}}));
+    }
 
-    std::cout << payload << std::endl;
-    // std::cout << json_request(url, headers, payload) << std::endl;
+    // std::cout << payload[0].dump(4) << std::endl;
+    std::cout << json_request(url, headers, payload) << std::endl;
 }
-
-// void FrisquetConnect::set(bool value)
-// {
-//     auto mode = value ? mode_e::CONFORT_PERMANENT : mode_e::REDUIT_PERMANENT;
-//     mode = mode_e::AUTO;
-
-//     pass_order({{"SELECTEUR_" + zone_, std::to_string(static_cast<int>(mode))}});
-// }
 
 void FrisquetConnect::set_programmation(int day, const program_day &pd) const
 {
@@ -211,27 +254,23 @@ void FrisquetConnect::set_programmation(const program_week &pw) const
 
 void FrisquetConnect::update_events(const Database::events &events)
 {
+    auto [start_day, day_of_week, programmation_index] = decompose_now(get_timezone());
     const auto *tz = date::locate_zone(get_timezone());
-    auto to_local = [&](auto tp)
-    {
-        return tz->to_local(tp);
-    };
 
-    auto now = to_local(get_time_now());
-    auto start_day = std::chrono::floor<std::chrono::days>(now);
-    date::weekday wd{start_day};
-    int index_offset = (wd.c_encoding() + 6) % 7; // 0 = Monday
     program_week pw{};
 
-    auto half_hour = std::chrono::duration<double>{30 * 60};
+    auto compute_index = [&](auto tp)
+    {
+        return (tz->to_local(tp) - start_day) / 30.min;
+    };
 
     for (const auto &event : events)
     {
-        long start = std::floor((to_local(event.start) - start_day) / half_hour);
-        long end = std::ceil((to_local(event.end) - start_day) / half_hour);
+        long start = std::floor(compute_index(event.heat_start));
+        long end = std::ceil(compute_index(event.heat_end));
 
         for (int i = std::max(0l, start); i < std::min(end, 48l * 7l); i++)
-            pw[(i / 48 + index_offset) % 7][i % 48] = true;
+            pw[(i / 48 + day_of_week) % 7][i % 48] = true;
     }
     if (!is_boiler_connected())
         std::cout << "Boiler " << chaudiere_ << ":" << zone_ << " is not connected, programmation might be transmitted only later" << std::endl;

@@ -12,6 +12,8 @@ public:
     struct event
     {
         int64_t id{-1};
+        timepoint heat_start;
+        timepoint heat_end;
         timepoint start;
         timepoint end;
         std::string room;
@@ -30,9 +32,10 @@ public:
                          timepoint after) const;
     events fetch_between(int64_t before, int64_t after) const;
     events fetch_current() const;
+    events fetch_currently_heating() const;
     bool fetch_channel_state(std::string_view channel) const;
-    std::string fetch_channel_description(std::string_view channel) const;
-    events fetch_future() const;
+    std::vector<std::string> fetch_channel_description(std::string_view channel) const;
+    events fetch_earliest_in_future() const;
     size_t current_and_future_events_count() const;
 
 protected:

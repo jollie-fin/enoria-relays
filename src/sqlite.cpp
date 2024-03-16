@@ -3,7 +3,6 @@
 #include <stdexcept>
 #include "sqlite.h"
 #include <sqlite3.h>
-#include <iostream>
 
 SQLite::SQLite(std::string_view path)
 {
@@ -39,13 +38,20 @@ std::vector<SQLite::SqlRow> SQLite::exec(std::string_view req, const SQLite::Par
 {
     std::vector<SqlRow> retval;
     sqlite3_stmt *stmt; // will point to prepared stamement object
-    sqlite3_prepare_v2(
-        db_,          // the handle to your (opened and ready) database
-        req.data(),   // the sql statement, utf-8 encoded
-        req.length(), // max length of sql statement
-        &stmt,        // this is an "out" parameter, the compiled statement goes here
-        nullptr);     // pointer to the tail end of sql statement (when there are
-                      // multiple statements inside the string; can be null)
+    if (
+        sqlite3_prepare_v2(
+            db_,
+            req.data(),
+            req.length(),
+            &stmt,
+            nullptr) != SQLITE_OK)
+    {
+        throw std::runtime_error{
+            "Error while executing sql : "
+            + std::string{req}
+            + " : "
+            + sqlite3_errmsg(db_)};
+    }
     int bind_idx = 1;
     auto expected_count = static_cast<size_t>(sqlite3_bind_parameter_count(stmt));
     auto actual_count = param.size();

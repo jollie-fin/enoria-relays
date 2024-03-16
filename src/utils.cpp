@@ -5,12 +5,12 @@
 #include <chrono>
 #include <curl/curl.h>
 #include <string>
-#include <iostream>
 
 using json = nlohmann::json;
+using namespace std::chrono_literals;
 
 static size_t writeMemoryCallback(void *contents, size_t size, size_t nmemb,
-                                    void *userp)
+                                  void *userp)
 {
     size_t realsize = size * nmemb;
     auto &mem = *static_cast<std::string *>(userp);
@@ -19,8 +19,8 @@ static size_t writeMemoryCallback(void *contents, size_t size, size_t nmemb,
 }
 
 std::string download(std::string_view url,
-                  const std::map<std::string_view, std::string_view> &headers,
-                  const json &payload)
+                     const std::map<std::string_view, std::string_view> &headers,
+                     const json &payload)
 {
     CURL *curl_handle;
     CURLcode res;
@@ -68,9 +68,9 @@ std::string download(std::string_view url,
 
     if (res != CURLE_OK)
         throw std::runtime_error(
-            "Impossible to retrieve " + 
-            std::string{url} + 
-            " : " + 
+            "Impossible to retrieve " +
+            std::string{url} +
+            " : " +
             curl_easy_strerror(res));
 
     curl_slist_free_all(curl_headers);
@@ -81,12 +81,12 @@ std::string download(std::string_view url,
 
 timepoint get_time_now()
 {
-    return std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
+    return chrono::floor<chrono::seconds>(chrono::system_clock::now());
 }
 
 timepoint from_timestamp(int64_t timestamp)
 {
-    return timepoint{std::chrono::seconds{timestamp}};
+    return timepoint{timestamp * 1s};
 }
 
 timepoint from_timestamp(std::string timestamp)

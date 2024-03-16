@@ -61,7 +61,13 @@ static int api_list_channels()
     for (auto channel : gpio.channel_list())
     {
         auto state = db.fetch_channel_state(channel);
-        auto description = db.fetch_channel_description(channel);
+        std::string description;
+        for (auto d : db.fetch_channel_description(channel))
+        {
+            if (!description.empty())
+                description += '/';
+            description += d;
+        }
         std::cout
             << channel
             << ";"
@@ -109,7 +115,7 @@ static int automatic()
     {
     public:
         Timer(std::string_view name,
-              std::chrono::duration<long> period,
+              chrono::duration<long> period,
               std::function<void()> lambda)
             : name_(name),
               period_(period),
@@ -119,7 +125,7 @@ static int automatic()
 
         void operator()()
         {
-            auto now = std::chrono::steady_clock::now();
+            auto now = chrono::steady_clock::now();
             if (now - previous_ > period_)
             {
                 std::cout << "Timer:" << name_ << std::endl;
@@ -138,8 +144,8 @@ static int automatic()
     protected:
         std::string name_;
         std::function<void()> lambda_;
-        std::chrono::steady_clock::time_point previous_;
-        std::chrono::duration<long> period_;
+        chrono::steady_clock::time_point previous_;
+        chrono::duration<long> period_;
     };
 
     std::vector<Timer> timers{
@@ -180,14 +186,14 @@ static int automatic()
              print_events(db.fetch_current());
              std::cout
                  << "  Future events" << std::endl;
-             print_events(db.fetch_future());
+             print_events(db.fetch_earliest_in_future());
          }},
         {"Update-GPIO",
          1min,
          [&]()
          {
              std::cout << "Fetching current events from database... " << std::flush;
-             auto current_state = db.fetch_current();
+             auto current_state = db.fetch_currently_heating();
              std::cout << "ok" << std::endl;
              print_events(current_state);
              gpio.update_channels(current_state);

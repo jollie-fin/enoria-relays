@@ -1,8 +1,5 @@
 #include <algorithm>
-#include <cstdio>
-#include <curl/curl.h>
 #include <stdexcept>
-#include <iostream>
 #include <chrono>
 #ifndef __cpp_lib_format
 // std::format polyfill using fmtlib
@@ -14,7 +11,6 @@ namespace std
 #else
 #include <format>
 #endif
-// To have chrono::parse
 #include "date/date.h"
 #include "date/tz.h"
 #include <sstream>
@@ -110,8 +106,8 @@ namespace ics
     events fetch_from_uri(std::string_view path)
     {
         auto t = path.starts_with("file://")
-                 ? cat(std::string{path.substr(7)})
-                 : download(path);
+                     ? cat(std::string{path.substr(7)})
+                     : download(path);
         auto tokens = split(t);
         return parse_events(tokens);
     }

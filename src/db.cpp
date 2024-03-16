@@ -1,8 +1,31 @@
 #include "db.h"
 #include "utils.h"
 #include <string>
-#include <iostream>
 #include <set>
+
+#define SELECT_FROM_EVENT                                    \
+    "SELECT events.START, \n"                                \
+    "       events.END, \n"                                  \
+    "       relays.FULLNAME, \n"                             \
+    "       events.ENTETE, \n"                               \
+    "       relays.CHANNEL,\n"                               \
+    "       relays.STATE,\n"                                 \
+    "       ? >= events.START - relays.INERTIA \n"           \
+    "       AND ? <= events.END as is_current, \n"           \
+    "       events.ID, \n"                                   \
+    "       events.START - relays.INERTIA AS heat_start, \n" \
+    "       CASE WHEN relays.STOP_DURING_MASS \n"            \
+    "               AND events.ENTETE LIKE '%messe%' \n"     \
+    "            THEN events.START \n"                       \
+    "            ELSE events.END \n"                         \
+    "            END \n"                                     \
+    "            AS heat_end \n"                             \
+    "FROM events \n"
+
+#define SELECT_FROM_EVENTS_JOIN_RELAYS \
+    SELECT_FROM_EVENT                  \
+    "JOIN relays \n"                   \
+    "ON events.SALLE LIKE relays.PATTERN_MATCHING \n"
 
 using namespace std::chrono_literals;
 
@@ -12,7 +35,7 @@ Database::Database(std::string_view path) : sql_(path)
 
 static Database::event create_event(const SQLite::SqlRow &row)
 {
-    if (row.size() != 8)
+    if (row.size() != 10)
         throw std::runtime_error{"impossible to create event from sql row"};
     Database::event retval;
     retval.start = from_timestamp(row[0]);
@@ -23,35 +46,29 @@ static Database::event create_event(const SQLite::SqlRow &row)
     retval.state = std::stoi(row[5]);
     retval.is_current = std::stoi(row[6]);
     retval.id = std::stoi(row[7]);
+    retval.heat_start = from_timestamp(row[8]);
+    retval.heat_end = from_timestamp(row[9]);
     return retval;
 }
-Database::events Database::fetch_future() const
+Database::events Database::fetch_earliest_in_future() const
 {
     auto now = get_time_now();
     Database::events retval;
     for (const auto &row : sql_.exec(
-             "SELECT e.START, "
-             "       e.END, "
-             "       e.SALLE, "
-             "       e.ENTETE, "
-             "       relays.CHANNEL,"
-             "       relays.STATE, "
-             "       0, "
-             "       e.ID "
-             "FROM events e "
-             "JOIN ("
-             "     SELECT MIN(events.start) as start,"
-             "            relays.NICKNAME as nick "
-             "     FROM events "
-             "     JOIN relays "
-             "     ON events.SALLE LIKE relays.NICKNAME "
-             "     WHERE events.start > ? "
-             "     GROUP BY nick "
-             "     ) s "
-             "ON e.SALLE LIKE s.nick AND s.START = e.START "
-             "JOIN relays "
-             "ON relays.NICKNAME = s.nick",
-             {now}))
+             SELECT_FROM_EVENT
+             "JOIN (\n"
+             "     SELECT MIN(e.start) as start,\n"
+             "            relays.PATTERN_MATCHING as pattern \n"
+             "     FROM events e \n"
+             "     JOIN relays \n"
+             "     ON e.SALLE LIKE relays.PATTERN_MATCHING \n"
+             "     WHERE e.start > ? \n"
+             "     GROUP BY pattern \n"
+             "     ) s \n"
+             "ON events.SALLE LIKE s.pattern AND s.start = events.START \n"
+             "JOIN relays \n"
+             "ON relays.PATTERN_MATCHING = s.pattern",
+             {now, now, now}))
     {
         retval.emplace_back(create_event(row));
     }
@@ -63,20 +80,24 @@ Database::events Database::fetch_current() const
     auto now = get_time_now();
     Database::events retval;
     for (const auto &row : sql_.exec(
-             "SELECT events.START, "
-             "       events.END, "
-             "       events.SALLE, "
-             "       events.ENTETE, "
-             "       relays.CHANNEL,"
-             "       relays.STATE, "
-             "       1, "
-             "       events.ID "
-             "FROM events "
-             "JOIN relays "
-             "ON events.SALLE LIKE relays.NICKNAME "
-             "WHERE ? >= events.START - relays.INERTIA "
-             "AND ? <= events.END",
+             SELECT_FROM_EVENTS_JOIN_RELAYS
+             "WHERE is_current ",
              {now, now}))
+    {
+        retval.emplace_back(create_event(row));
+    }
+    return retval;
+}
+
+Database::events Database::fetch_currently_heating() const
+{
+    auto now = get_time_now();
+    Database::events retval;
+    for (const auto &row : sql_.exec(
+             SELECT_FROM_EVENTS_JOIN_RELAYS
+             "WHERE ? >= heat_start \n"
+             "AND ? <= heat_end ",
+             {now, now, now, now}))
     {
         retval.emplace_back(create_event(row));
     }
@@ -88,19 +109,9 @@ Database::events Database::fetch_all_to_come() const
     auto now = get_time_now();
     Database::events retval;
     for (const auto &row : sql_.exec(
-             "SELECT events.START, "
-             "       events.END, "
-             "       events.SALLE, "
-             "       events.ENTETE, "
-             "       relays.CHANNEL,"
-             "       relays.STATE,"
-             "       ? >= events.START - relays.INERTIA AND ? <= events.END, "
-             "       events.ID "
-             "FROM events "
-             "JOIN relays "
-             "ON events.SALLE LIKE relays.NICKNAME "
-             "WHERE ? <= events.END "
-             "ORDER BY events.START "
+             SELECT_FROM_EVENTS_JOIN_RELAYS
+             "WHERE ? <= events.END \n"
+             "ORDER BY events.START \n"
              "LIMIT 10 ",
              {now, now, now}))
     {
@@ -121,18 +132,8 @@ Database::events Database::fetch_between(int64_t before, int64_t after) const
     auto now = get_time_now();
     Database::events retval;
     for (const auto &row : sql_.exec(
-             "SELECT events.START, "
-             "       events.END, "
-             "       events.SALLE, "
-             "       events.ENTETE, "
-             "       relays.CHANNEL,"
-             "       relays.STATE ,"
-             "       ? >= events.START - relays.INERTIA AND ? <= events.END, "
-             "       events.ID "
-             "FROM events "
-             "JOIN relays "
-             "ON events.SALLE LIKE relays.NICKNAME "
-             "WHERE ? <= events.START "
+             SELECT_FROM_EVENTS_JOIN_RELAYS
+             "WHERE ? <= events.START \n"
              "AND events.START <= ?",
              {now, now, before, after}))
     {
@@ -143,7 +144,7 @@ Database::events Database::fetch_between(int64_t before, int64_t after) const
 
 size_t Database::current_and_future_events_count() const
 {
-    auto test_sql = "SELECT NULL FROM events WHERE "
+    auto test_sql = "SELECT NULL FROM events WHERE \n"
                     " END>=?";
     return sql_.exec(
                    test_sql,
@@ -154,7 +155,7 @@ size_t Database::current_and_future_events_count() const
 void Database::add_event(const event &e)
 {
     auto insert_sql =
-        "INSERT INTO events (SALLE, START, END, ENTETE) "
+        "INSERT INTO events (SALLE, START, END, ENTETE) \n"
         "            VALUES (?,?,?,?)";
 
     sql_.exec(insert_sql,
@@ -170,14 +171,14 @@ void Database::update_events(const ics::events &ics_events)
     auto now = get_time_now();
     auto drop_old_sql =
         "DELETE FROM events WHERE events.END < ?";
-    sql_.exec(drop_old_sql, {now - std::chrono::months{1}});
+    sql_.exec(drop_old_sql, {now - chrono::months{1}});
 
     events db_events;
     auto find_id_sql =
-        "SELECT events.ID FROM events "
-        " WHERE events.START = ? "
-        " AND events.END = ? "
-        " AND events.SALLE = ? "
+        "SELECT events.ID FROM events \n"
+        " WHERE events.START = ? \n"
+        " AND events.END = ? \n"
+        " AND events.SALLE = ? \n"
         " AND events.ENTETE = ? ";
     std::set<int64_t> id_to_keep;
     events events_to_add;
@@ -218,7 +219,7 @@ void Database::update_events(const ics::events &ics_events)
 bool Database::fetch_channel_state(std::string_view channel) const
 {
     auto sql =
-        "SELECT relays.STATE FROM relays "
+        "SELECT relays.STATE FROM relays \n"
         "WHERE CHANNEL = ?";
     auto res = sql_.exec(sql, {channel});
     if (res.empty())
@@ -226,15 +227,18 @@ bool Database::fetch_channel_state(std::string_view channel) const
     return res[0][0] == "1";
 }
 
-std::string Database::fetch_channel_description(std::string_view channel) const
+std::vector<std::string> Database::fetch_channel_description(std::string_view channel) const
 {
+    std::vector<std::string> retval;
     auto sql =
-        "SELECT relays.FULLNAME FROM relays "
+        "SELECT relays.FULLNAME FROM relays \n"
         "WHERE CHANNEL = ?";
     auto res = sql_.exec(sql, {channel});
     if (res.empty())
         throw std::runtime_error("Unknown channel " + std::string{channel});
-    return res[0][0];
+    for (const auto &row : res)
+        retval.emplace_back(row[0]);
+    return retval;
 }
 
 void Database::update_channel(std::string_view channel, bool state)
@@ -242,8 +246,8 @@ void Database::update_channel(std::string_view channel, bool state)
     auto now = std::to_string(to_timestamp(get_time_now()));
     auto state_str = std::to_string(state);
     auto update_sql =
-        "UPDATE relays "
-        "SET STATE = ?, LAST_UPDATE = ? "
+        "UPDATE relays \n"
+        "SET STATE = ?, LAST_UPDATE = ? \n"
         "WHERE CHANNEL = ? AND STATE <> ?";
     sql_.exec(update_sql, {state_str,
                            now,
