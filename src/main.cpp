@@ -6,17 +6,7 @@
 #include <unistd.h>
 #include "ics.h"
 #include <chrono>
-#ifndef __cpp_lib_format
-// std::format polyfill using fmtlib
-#include <fmt/core.h>
-namespace std
-{
-    using fmt::format;
-}
-#else
-#include <format>
-#endif
-
+#include "date/date.h"
 #define SQLITE_PATH "SQLITE_PATH"
 #define GPIO_CFG "GPIO_CFG"
 #define ENORIA_URI "ENORIA_URI"
@@ -24,12 +14,6 @@ namespace std
 #include "utils.h"
 
 using namespace std::chrono_literals;
-
-static std::ostream &operator<<(std::ostream &out, timepoint tp)
-{
-    out << std::format("{:%Y/%m/%d %H:%M:%S}", tp);
-    return out;
-}
 
 static int help(std::string_view name)
 {
