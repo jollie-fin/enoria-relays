@@ -104,7 +104,7 @@ static void print_events(const Database::events &events)
             << "' from '" << e.start
             << "' to '" << e.end
             << "' on channel '" << e.channel
-            << "'" << std::endl;
+            << "' (heating time " << e.heat_start << "-" << e.heat_end << ")" << std::endl;
 }
 
 static int automatic()
