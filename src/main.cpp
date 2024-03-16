@@ -6,6 +6,16 @@
 #include <unistd.h>
 #include "ics.h"
 #include <chrono>
+#ifndef __cpp_lib_format
+// std::format polyfill using fmtlib
+#include <fmt/core.h>
+namespace std
+{
+    using fmt::format;
+}
+#else
+#include <format>
+#endif
 
 #define SQLITE_PATH "SQLITE_PATH"
 #define GPIO_CFG "GPIO_CFG"
