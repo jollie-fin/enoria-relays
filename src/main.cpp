@@ -15,6 +15,12 @@
 
 using namespace std::chrono_literals;
 
+static std::ostream &operator<<(std::ostream &out, timepoint tp)
+{
+    out << std::format("{:%Y/%m/%d %H:%M:%S}", tp);
+    return out;
+}
+
 static int help(std::string_view name)
 {
     std::cout << "Usage : "
