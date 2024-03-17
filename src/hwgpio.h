@@ -21,7 +21,7 @@ public:
         GPIOHandler(std::string = "") {}
         virtual bool get() const { return false; }
         virtual void set(bool) {}
-        virtual void update_events(const Database::events &events) {}
+        virtual void update_events(const Database::events &events, bool is_inverted) {}
         virtual void refresh() {}
     };
 
@@ -32,6 +32,13 @@ protected:
     {
         RawGPIO(Channel hw);
         bool get() const override;
+        void set(bool) override;
+        std::string hw_;
+    };
+
+    struct FakeGPIO : public GPIOHandler
+    {
+        FakeGPIO(Channel hw);
         void set(bool) override;
         std::string hw_;
     };

@@ -252,12 +252,16 @@ void FrisquetConnect::set_programmation(const program_week &pw) const
     pass_order({{"PROGRAMME_" + zone_, payload}});
 }
 
-void FrisquetConnect::update_events(const Database::events &events)
+void FrisquetConnect::update_events(const Database::events &events, bool is_inverted)
 {
     auto [start_day, day_of_week, programmation_index] = decompose_now(get_timezone());
     const auto *tz = date::locate_zone(get_timezone());
 
     program_week pw{};
+
+    for (auto &day : pw)
+        for (auto &slot : day)
+            slot = is_inverted;
 
     auto compute_index = [&](auto tp)
     {
@@ -270,7 +274,7 @@ void FrisquetConnect::update_events(const Database::events &events)
         long end = std::ceil(compute_index(event.heat_end));
 
         for (int i = std::max(0l, start); i < std::min(end, 48l * 7l); i++)
-            pw[(i / 48 + day_of_week) % 7][i % 48] = true;
+            pw[(i / 48 + day_of_week) % 7][i % 48] = !is_inverted;
     }
     if (!is_boiler_connected())
         std::cout << "Boiler " << chaudiere_ << ":" << zone_ << " is not connected, programmation might be transmitted only later" << std::endl;

@@ -12,6 +12,8 @@ std::unique_ptr<HWGpio::GPIOHandler> HWGpio::make_impl(Channel channel)
 {
     auto [category, id] = split2(channel, ':');
     category = category[0] == '!' ? category.substr(1) : category;
+    if (category.starts_with("dummy"))
+        return std::make_unique<FakeGPIO>(id);
     if (category.starts_with("gpio"))
         return std::make_unique<RawGPIO>(id);
     if (category.starts_with("usbrelay"))
@@ -20,6 +22,10 @@ std::unique_ptr<HWGpio::GPIOHandler> HWGpio::make_impl(Channel channel)
         return std::make_unique<FrisquetConnect>(id);
     throw std::runtime_error("Invalid HWGPIO :" + std::string{category});
     return {};
+}
+
+HWGpio::FakeGPIO::FakeGPIO(HWGpio::Channel hw) : hw_("dummy:" + std::string{hw})
+{
 }
 
 HWGpio::RawGPIO::RawGPIO(HWGpio::Channel hw) : hw_("gpio" + std::string{hw})
@@ -52,6 +58,11 @@ void HWGpio::RawGPIO::set(bool value)
     echo("/sys/class/gpio/" + hw_ + "/value", std::to_string(value));
 }
 
+void HWGpio::FakeGPIO::set(bool value)
+{
+    std::cout << "set " << value << " to " << hw_ << std::endl;
+}
+
 bool HWGpio::get() const
 {
     auto value = impl_->get();
@@ -61,7 +72,7 @@ bool HWGpio::get() const
 
 void HWGpio::update_events(const Database::events &events)
 {
-    impl_->update_events(events);
+    impl_->update_events(events, is_inverted_);
 }
 
 void HWGpio::refresh()

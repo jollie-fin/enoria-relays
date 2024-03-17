@@ -32,13 +32,12 @@ public:
     void pass_order(const std::map<std::string, json> &data) const;
     void set_programmation(int day, const program_day &pd) const; // Monday = 1
     void set_programmation(const program_week &pw) const;         // Monday, Tuesday, Wednesday...
-    program_week get_programmation_week() const;         // Monday, Tuesday, Wednesday...
+    program_week get_programmation_week() const;                  // Monday, Tuesday, Wednesday...
     program_day get_programmation_day(int day_of_week) const;
-    void update_events(const Database::events &events) override;
+    void update_events(const Database::events &events, bool is_inverted) override;
     std::string get_timezone() const;
 
 protected:
-
     std::string zone_;
     std::string chaudiere_;
     std::string token_;
