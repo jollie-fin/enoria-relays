@@ -7,6 +7,7 @@
 
 #include "usbrelay.h"
 #include "frisquetconnect.h"
+#include "log.h"
 
 std::unique_ptr<HWGpio::GPIOHandler> HWGpio::make_impl(Channel channel)
 {
@@ -35,7 +36,7 @@ HWGpio::RawGPIO::RawGPIO(HWGpio::Channel hw) : hw_("gpio" + std::string{hw})
         echo("/sys/class/gpio/export", hw);
     if (!cat(direction).starts_with("out"))
     {
-        std::cout << "Setting to out" << std::endl;
+        INFO << hw_ << "Setting to out" << std::endl;
         echo(direction, "out");
     }
 }
@@ -60,7 +61,7 @@ void HWGpio::RawGPIO::set(bool value)
 
 void HWGpio::FakeGPIO::set(bool value)
 {
-    std::cout << "set " << value << " to " << hw_ << std::endl;
+    DEBUG << "set " << value << " to " << hw_ << std::endl;
 }
 
 bool HWGpio::get() const

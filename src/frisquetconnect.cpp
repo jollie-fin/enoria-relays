@@ -12,6 +12,8 @@
 #include "date/date.h"
 #include "date/tz.h"
 
+#include "log.h"
+
 using namespace std::chrono_literals;
 using json = nlohmann::json;
 
@@ -19,8 +21,13 @@ constexpr auto AUTH_URL = "https://fcutappli.frisquet.com/api/v1/authentificatio
 constexpr auto API_URL = "https://fcutappli.frisquet.com/api/v1/sites/";
 constexpr auto ORDRES_URL = "https://fcutappli.frisquet.com/api/v1/ordres/";
 
-constexpr auto TOKEN_RENEWAL_PERIOD = 30min;
-constexpr auto INFOS_RENEWAL_PERIOD = 5min;
+constexpr auto INFOS_RENEWAL_PERIOD = 24h;
+constexpr auto TOKEN_RENEWAL_PERIOD = 6h;
+
+static auto sc_now()
+{
+    return chrono::steady_clock::now();
+}
 
 class RequestFailure : public std::exception
 {
@@ -49,7 +56,11 @@ protected:
 };
 
 FrisquetConnect::FrisquetConnect(std::string_view id)
+    : last_infos_update_time_(sc_now() - 2 * INFOS_RENEWAL_PERIOD)
 {
+    TRACE_CALL();
+    DEBUG << id << std::endl;
+
     auto fields = split(id, ':');
     if (fields.size() != 4)
         throw std::runtime_error("Impossible to initialize frisquetconnect with " +
@@ -65,38 +76,70 @@ static json json_request(std::string_view url,
                          const std::map<std::string_view, std::string_view> &headers,
                          const json &payload)
 {
-    auto result = download(url, headers, payload);
-    auto retval = json::parse(result);
+    TRACE_CALL();
+    auto raw = download(url, headers, payload);
+    DEBUG << raw << std::endl;
+
+    auto retval = json::parse(raw);
     if (retval.contains("message"))
     {
         throw RequestFailure(url, retval);
     }
-    return json::parse(result);
+
+    return retval;
 }
 
-static std::string get_token(std::string_view email, std::string_view password)
+static std::string get_new_token(std::string_view email, std::string_view password)
 {
     json payload = {{"locale", "fr"}, {"email", email}, {"password", password}, {"type_client", "IOS"}};
     auto res = json_request(AUTH_URL, {}, payload);
     return res["token"];
 }
 
+std::string_view FrisquetConnect::get_token() const
+{
+    TRACE_CALL();
+
+    auto now = sc_now();
+
+    if (now - last_token_time_ > TOKEN_RENEWAL_PERIOD)
+    {
+        DEBUG << " Token renewal " << std::flush;
+        token_ = get_new_token(email_, password_);
+        DEBUG << "Ok" << std::endl;
+        last_token_time_ = now;
+    }
+    else
+    {
+        DEBUG << "No renewal" << std::endl;
+    }
+    return token_;
+}
+
 void FrisquetConnect::refresh()
 {
-    auto now = chrono::steady_clock::now();
-    if (now - token_time_ > TOKEN_RENEWAL_PERIOD)
+    const_cast<const FrisquetConnect *>(this)->refresh(false);
+}
+
+void FrisquetConnect::refresh(bool force_refresh) const
+{
+    TRACE_CALL();
+
+    auto now = sc_now();
+
+    if (now - last_infos_update_time_ > INFOS_RENEWAL_PERIOD || force_refresh)
     {
-        token_time_ = now;
-        token_ = get_token(email_, password_);
-    }
-    if (now - last_update_time_ > INFOS_RENEWAL_PERIOD)
-    {
-        last_update_time_ = now;
-        token_ = get_token(email_, password_);
+        DEBUG << " infos renewal " << std::flush;
+        last_infos_update_time_ = now;
         std::ostringstream sstr;
-        sstr << API_URL << chaudiere_ << "?token=" << token_;
+        sstr << API_URL << chaudiere_ << "?token=" << get_token();
         infos_ = json_request(sstr.str(), {}, {});
         display_alarm();
+        DEBUG << "Ok" << std::endl;
+    }
+    else
+    {
+        DEBUG << "No renewal" << std::endl;
     }
 }
 
@@ -105,14 +148,14 @@ void FrisquetConnect::set_boiler_mode(mode_e mode)
     pass_order({{"SELECTEUR_" + zone_, static_cast<int>(mode)}});
 }
 
-FrisquetConnect::program_week FrisquetConnect::get_programmation_week() const
+FrisquetConnect::program_week FrisquetConnect::get_program_week() const
 {
     for (const auto &info_zone : infos_["zones"])
     {
         if (info_zone["identifiant"] == zone_)
         {
             program_week retval;
-            for (const auto &day : info_zone["programmation"])
+            for (const auto &day : info_zone["program"])
             {
                 int day_of_week = day["jour"];
                 day_of_week = (day_of_week + 6) % 7;
@@ -126,9 +169,9 @@ FrisquetConnect::program_week FrisquetConnect::get_programmation_week() const
     throw std::runtime_error("Impossible to find " + std::string{zone_});
 }
 
-FrisquetConnect::program_day FrisquetConnect::get_programmation_day(int day_of_week) const
+FrisquetConnect::program_day FrisquetConnect::get_program_day(int day_of_week) const
 {
-    return get_programmation_week()[day_of_week % 7];
+    return get_program_week()[day_of_week % 7];
 }
 
 FrisquetConnect::mode_e FrisquetConnect::get_boiler_mode() const
@@ -155,7 +198,10 @@ FrisquetConnect::mode_e FrisquetConnect::get_boiler_mode() const
 
 std::string FrisquetConnect::get_timezone() const
 {
-    return infos_["timezone"];
+    TRACE_CALL();
+    refresh();
+    DEBUG << infos_ << std::endl;
+    return infos_.at("timezone");
 }
 
 std::vector<std::string> FrisquetConnect::get_alarms() const
@@ -171,11 +217,12 @@ std::vector<std::string> FrisquetConnect::get_alarms() const
 void FrisquetConnect::display_alarm() const
 {
     for (const auto &i : get_alarms())
-        std::cout << chaudiere_ << ":" << zone_ << ":alarme:" << i << std::endl;
+        INFO << chaudiere_ << ":" << zone_ << ":alarme:" << i << std::endl;
 }
 
 bool FrisquetConnect::is_boiler_connected() const
 {
+    refresh();
     for (const auto &i : get_alarms())
         if (i.starts_with("Box Frisquet Connect déconnectée"))
             return false;
@@ -194,22 +241,25 @@ static auto decompose_now(std::string_view timezone)
     auto start_day = chrono::floor<chrono::days>(now);
     date::weekday wd{start_day};
     int day_of_week = (wd.c_encoding() + 6) % 7; // 0 = Monday
-    int programmation_index = (now - start_day) / 30min;
+    int program_index = (now - start_day) / 30min;
 
-    return std::make_tuple(start_day, day_of_week, programmation_index);
+    return std::make_tuple(start_day, day_of_week, program_index);
 }
 
 bool FrisquetConnect::get() const
 {
-    auto [start_day, day_of_week, programmation_index] = decompose_now(get_timezone());
+    auto [start_day, day_of_week, program_index] = decompose_now(get_timezone());
 
-    auto today = get_programmation_day(day_of_week);
-    return today[programmation_index] == 1;
+    auto today = get_program_day(day_of_week);
+    return today[program_index] == 1;
 }
 
 void FrisquetConnect::pass_order(const std::map<std::string, json> &data) const
 {
-    auto url = std::string{ORDRES_URL} + chaudiere_ + "?token=" + token_;
+    TRACE_CALL();
+    refresh(false);
+
+    auto url = std::string{ORDRES_URL} + chaudiere_ + "?token=" + std::string{get_token()};
     std::map<std::string_view, std::string_view> headers{
         {"Host", "fcutappli.frisquet.com"},
         {"Accept", "*/*"},
@@ -223,11 +273,14 @@ void FrisquetConnect::pass_order(const std::map<std::string, json> &data) const
         payload.emplace_back(json::object({{"cle", key}, {"valeur", stringified}}));
     }
 
-    // std::cout << payload[0].dump(4) << std::endl;
-    std::cout << json_request(url, headers, payload) << std::endl;
+    INFO << payload.dump() << std::endl;
+    auto response = json_request(url, headers, payload);
+    INFO << response << std::endl;
+
+    refresh(true);
 }
 
-void FrisquetConnect::set_programmation(int day, const program_day &pd) const
+void FrisquetConnect::force_set_program(int day, const program_day &pd) const
 {
     day = day % 7;
     json sub_payload;
@@ -238,8 +291,11 @@ void FrisquetConnect::set_programmation(int day, const program_day &pd) const
     pass_order({{"PROGRAMME_" + zone_, payload}});
 }
 
-void FrisquetConnect::set_programmation(const program_week &pw) const
+void FrisquetConnect::force_set_program(const program_week &pw) const
 {
+    TRACE_CALL();
+    last_whole_week_update_time_ = sc_now();
+
     json payload;
     for (int day = 1; day <= 7; day++)
     {
@@ -249,34 +305,74 @@ void FrisquetConnect::set_programmation(const program_week &pw) const
             day_payload["plages"].emplace_back(static_cast<int>(i));
         payload.emplace_back(day_payload);
     }
+
     pass_order({{"PROGRAMME_" + zone_, payload}});
+}
+
+void FrisquetConnect::set_program_if_necessary(const program_week &pw) const
+{
+    TRACE_CALL();
+
+    auto elapsed = chrono::duration_cast<chrono::seconds>(sc_now() - last_whole_week_update_time_);
+    INFO << "Age of Frisquet Information : " << elapsed << std::endl;
+
+    refresh(false);
+    bool program_is_different = get_program_week() != pw;
+    if (program_is_different)
+        INFO << "Program has changed" << std::endl;
+    bool program_is_too_old = elapsed > 24h;
+    if (program_is_too_old)
+        INFO << "Program has not been updated for 24h" << std::endl;
+    if (program_is_too_old || program_is_different)
+    {
+        INFO << "Force sending information to Frisquet" << std::endl;
+        force_set_program(pw);
+    }
 }
 
 void FrisquetConnect::update_events(const Database::events &events, bool is_inverted)
 {
-    auto [start_day, day_of_week, programmation_index] = decompose_now(get_timezone());
-    const auto *tz = date::locate_zone(get_timezone());
+    TRACE_CALL();
 
-    program_week pw{};
-
-    for (auto &day : pw)
-        for (auto &slot : day)
-            slot = is_inverted;
-
-    auto compute_index = [&](auto tp)
+    try
     {
-        return (tz->to_local(tp) - start_day) / 30.min;
-    };
+        DEBUG << " get timezone" << std::endl;
+        auto [start_day, day_of_week, program_index] = decompose_now(get_timezone());
+        const auto *tz = date::locate_zone(get_timezone());
 
-    for (const auto &event : events)
-    {
-        long start = std::floor(compute_index(event.heat_start));
-        long end = std::ceil(compute_index(event.heat_end));
+        DEBUG << "compute_program" << std::endl;
 
-        for (int i = std::max(0l, start); i < std::min(end, 48l * 7l); i++)
-            pw[(i / 48 + day_of_week) % 7][i % 48] = !is_inverted;
+        program_week pw{};
+
+        for (auto &day : pw)
+            for (auto &slot : day)
+                slot = is_inverted;
+
+        auto compute_index = [&](auto tp)
+        {
+            return (tz->to_local(tp) - start_day) / 30.min;
+        };
+
+        for (const auto &event : events)
+        {
+            long start = std::floor(compute_index(event.heat_start));
+            long end = std::ceil(compute_index(event.heat_end));
+
+            for (int i = std::max(0l, start); i < std::min(end, 48l * 7l); i++)
+                pw[(i / 48 + day_of_week) % 7][i % 48] = !is_inverted;
+        }
+
+        DEBUG << "check is_boiler_connected" << std::endl;
+
+        if (!is_boiler_connected())
+            INFO << "Boiler " << chaudiere_ << ":" << zone_ << " is not connected, program might be transmitted only later" << std::endl;
+
+        DEBUG << "send program" << std::endl;
+        set_program_if_necessary(pw);
     }
-    if (!is_boiler_connected())
-        std::cout << "Boiler " << chaudiere_ << ":" << zone_ << " is not connected, programmation might be transmitted only later" << std::endl;
-    set_programmation(pw);
+    catch (std::exception &e)
+    {
+        INFO << " failed : " << e.what() << std::endl;
+        refresh(true);
+    };
 }

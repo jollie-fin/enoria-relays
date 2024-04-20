@@ -7,38 +7,39 @@
 #include "ics.h"
 #include <chrono>
 #include "date/date.h"
+#include "utils.h"
+#include "log.h"
+
 #define SQLITE_PATH "SQLITE_PATH"
 #define GPIO_CFG "GPIO_CFG"
 #define ENORIA_URI "ENORIA_URI"
-
-#include "utils.h"
 
 using namespace std::chrono_literals;
 using namespace date;
 
 static int help(std::string_view name)
 {
-    std::cout << "Usage : "
-              << name
-              << "(--env CONFIG_FILE) [--automatic|"
-                 "--read-status|"
-                 "--read-hw CHANNEL|"
-                 "--set-hw CHANNEL VALUE|"
-                 "--program-event CHANNEL DELAY_MIN DESCRIPTION|"
-                 "--api-list-channels|"
-                 "--api-list-events BEFORE AFTER|"
-                 "--api-list-current-events|"
-                 "--list-events]"
-              << std::endl;
+    RAW << "Usage : "
+        << name
+        << "(--env CONFIG_FILE) [--automatic|"
+           "--read-status|"
+           "--read-hw CHANNEL|"
+           "--set-hw CHANNEL VALUE|"
+           "--program-event CHANNEL DELAY_MIN DESCRIPTION|"
+           "--api-list-channels|"
+           "--api-list-events BEFORE AFTER|"
+           "--api-list-current-events|"
+           "--list-events]"
+        << std::endl;
     return 1;
 }
 
 static void print_events_csv(const Database::events &events)
 {
-    std::cout << "id;channel;description;start;end;is_current" << std::endl;
+    RAW << "id;channel;description;start;end;is_current" << std::endl;
     for (const auto &event : events)
     {
-        std::cout
+        RAW
             << event.id
             << ";"
             << event.channel
@@ -56,7 +57,7 @@ static void print_events_csv(const Database::events &events)
 
 static int api_list_channels()
 {
-    std::cout << "channel;description;state" << std::endl;
+    RAW << "channel;description;state" << std::endl;
     Database db{env::get(SQLITE_PATH, "test.db")};
     GPIO gpio{db, env::get(GPIO_CFG, "gpio.cfg")};
     for (auto channel : gpio.channel_list())
@@ -69,7 +70,7 @@ static int api_list_channels()
                 description += '/';
             description += d;
         }
-        std::cout
+        RAW
             << channel
             << ";"
             << description
@@ -94,17 +95,26 @@ static int api_list_current_events()
     return 1;
 }
 
+static auto to_locale(auto sys_time)
+{
+    return std::chrono::zoned_seconds{
+        std::chrono::current_zone(),
+        std::chrono::floor<std::chrono::seconds>(sys_time)};
+}
+
 static void print_events(const Database::events &events)
 {
     for (const auto &e : events)
-        std::cout
+        INFO
             << "    "
             << "Event '" << e.description
             << "' in room '" << e.room
-            << "' from '" << e.start
-            << "' to '" << e.end
+            << "' from '" << to_locale(e.start)
+            << "' to '" << to_locale(e.end)
             << "' on channel '" << e.channel
-            << "' (heating time '" << e.heat_start << "'-'" << e.heat_end << "')" << std::endl;
+            << "' (heating time '" << to_locale(e.heat_start)
+            << "'-'" << to_locale(e.heat_end)
+            << "')" << std::endl;
 }
 
 static int automatic()
@@ -119,8 +129,8 @@ static int automatic()
               chrono::duration<long> period,
               std::function<void()> lambda)
             : name_(name),
-              period_(period),
-              lambda_(lambda)
+              lambda_(lambda),
+              period_(period)
         {
         }
 
@@ -129,7 +139,7 @@ static int automatic()
             auto now = chrono::steady_clock::now();
             if (now - previous_ > period_)
             {
-                std::cout << "Timer:" << name_ << std::endl;
+                DEBUG << "Timer:" << name_ << std::endl;
                 previous_ = now;
                 try
                 {
@@ -137,7 +147,7 @@ static int automatic()
                 }
                 catch (std::exception &e)
                 {
-                    std::cout << " failed : " << e.what() << std::endl;
+                    ERROR << " failed : " << e.what() << std::endl;
                 }
             }
         }
@@ -160,15 +170,15 @@ static int automatic()
              {
                  try
                  {
-                     std::cout << "Fetching new calendar from Enoria... " << std::flush;
+                     INFO << "Fetching new calendar from Enoria... " << std::flush;
                      events = ics::fetch_from_uri(env::get(ENORIA_URI, "http://invalid"));
-                     std::cout << "Ok!" << std::endl;
+                     INFO << "Ok!" << std::endl;
                      break;
                  }
                  catch (std::exception &e)
                  {
-                     std::cout << " failed :\n"
-                               << "    " << e.what() << std::endl;
+                     ERROR << " failed :\n"
+                           << "    " << e.what() << std::endl;
                      sleep(3);
                      count--;
                      if (count == 0)
@@ -176,16 +186,16 @@ static int automatic()
                  }
              }
 
-             std::cout << "found " << events.events.size() << " events" << std::endl;
+             INFO << "found " << events.events.size() << " events" << std::endl;
              db.update_events(events);
-             std::cout
+             INFO
                  << db.current_and_future_events_count()
                  << " events are curently in the present or future"
                  << std::endl;
-             std::cout
+             INFO
                  << "  Current events" << std::endl;
              print_events(db.fetch_current());
-             std::cout
+             INFO
                  << "  Future events" << std::endl;
              print_events(db.fetch_earliest_in_future());
          }},
@@ -193,9 +203,9 @@ static int automatic()
          1min,
          [&]()
          {
-             std::cout << "Fetching current events from database... " << std::flush;
+             INFO << "Fetching current events from database... " << std::flush;
              auto current_state = db.fetch_currently_heating();
-             std::cout << "ok" << std::endl;
+             INFO << "ok" << std::endl;
              print_events(current_state);
              gpio.update_channels(current_state);
          }},
@@ -230,11 +240,11 @@ static int list_current_and_future_events()
 {
     Database db{env::get(SQLITE_PATH, "test.db")};
 
-    std::cout
+    INFO
         << db.current_and_future_events_count()
         << " events are currently in the present or future"
         << std::endl;
-    std::cout
+    INFO
         << " events to come" << std::endl;
     print_events(db.fetch_all_to_come());
 
@@ -248,7 +258,7 @@ static int read_status()
     for (auto channel : gpio.channel_list())
     {
         auto state = db.fetch_channel_state(channel);
-        std::cout
+        INFO
             << "channel "
             << channel
             << " has state "
@@ -264,7 +274,7 @@ static int read_hw(std::string_view channel)
     Database db{env::get(SQLITE_PATH, "test.db")};
     GPIO gpio{db, env::get(GPIO_CFG, "gpio.cfg")};
     auto hw_state = gpio.get_hw_channel(channel);
-    std::cout
+    INFO
         << "channel "
         << channel
         << " has hardware state "
@@ -277,7 +287,7 @@ static int set_hw(std::string_view channel, std::string_view state)
 {
     Database db{env::get(SQLITE_PATH, "test.db")};
     GPIO gpio{db, env::get(GPIO_CFG, "gpio.cfg")};
-    std::cout
+    INFO
         << "Request setting channel "
         << channel
         << " to state "
@@ -285,7 +295,7 @@ static int set_hw(std::string_view channel, std::string_view state)
         << std::endl;
     gpio.set_channel(channel, state.starts_with("1"));
     auto hw_state = gpio.get_hw_channel(channel);
-    std::cout
+    INFO
         << "channel "
         << channel
         << " has hardware state "
@@ -308,10 +318,10 @@ static int program_event(std::string channel, std::string length_min, char **des
     start -= 30min; // start is 30 min in the past
 
     Database db{env::get(SQLITE_PATH, "test.db")};
-    Database::event e{.start = start, .end = end, .room = channel, .channel = channel, .description = description};
+    Database::event e{.heat_start = start, .heat_end = end, .start = start, .end = end, .room = channel, .channel = channel, .description = description};
 
     db.add_event(e);
-    std::cout << "Programming event" << std::endl;
+    INFO << "Programming event" << std::endl;
     print_events({e});
     return 0;
 }
@@ -364,7 +374,7 @@ int main(int argc, char **argv, char **envp)
     }
     catch (std::exception &e)
     {
-        std::cout
+        ERROR
             << "caught exception:"
             << e.what()
             << std::endl;

@@ -26,7 +26,7 @@ namespace ics
         sstr >> date::parse(std::string{"%Y%m%dT%H%M%S"}, local_tp);
 
         const auto *zone = date::locate_zone(timezone);
-        return zone->to_sys(local_tp);
+        return zone->to_sys(local_tp, date::choose::earliest);
     }
 
     struct token

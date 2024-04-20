@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <iostream>
 #include <unistd.h>
+#include "log.h"
 
 bool USBRelay::first_ = true;
 
@@ -25,7 +26,7 @@ std::runtime_error USBRelay::hid_exception() const
 static void hid_free()
 {
     if (hid_exit())
-        std::cout << "Found error in hid_exit" << std::endl;
+        ERROR << "Found error in hid_exit" << std::endl;
 }
 
 USBRelay::USBRelay(std::string_view id)

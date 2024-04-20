@@ -24,26 +24,30 @@ public:
     // void set(bool);
     bool get() const override;
     void refresh() override;
+    void refresh(bool force_refresh = false) const;
+    std::string_view get_token() const;
     void set_boiler_mode(mode_e mode);
     mode_e get_boiler_mode() const;
     std::vector<std::string> get_alarms() const;
     void display_alarm() const;
     bool is_boiler_connected() const;
     void pass_order(const std::map<std::string, json> &data) const;
-    void set_programmation(int day, const program_day &pd) const; // Monday = 1
-    void set_programmation(const program_week &pw) const;         // Monday, Tuesday, Wednesday...
-    program_week get_programmation_week() const;                  // Monday, Tuesday, Wednesday...
-    program_day get_programmation_day(int day_of_week) const;
+    void force_set_program(int day, const program_day &pd) const; // Monday = 1
+    void force_set_program(const program_week &pw) const;         // Monday, Tuesday, Wednesday...
+    void set_program_if_necessary(const program_week &pw) const;  // Monday, Tuesday, Wednesday...
+    program_week get_program_week() const;                        // Monday, Tuesday, Wednesday...
+    program_day get_program_day(int day_of_week) const;
     void update_events(const Database::events &events, bool is_inverted) override;
     std::string get_timezone() const;
 
 protected:
     std::string zone_;
     std::string chaudiere_;
-    std::string token_;
+    mutable std::string token_;
     std::string email_;
     std::string password_;
-    json infos_;
-    std::chrono::steady_clock::time_point token_time_;
-    std::chrono::steady_clock::time_point last_update_time_;
+    mutable json infos_;
+    mutable std::chrono::steady_clock::time_point last_token_time_;
+    mutable std::chrono::steady_clock::time_point last_infos_update_time_;
+    mutable std::chrono::steady_clock::time_point last_whole_week_update_time_;
 };

@@ -21,7 +21,7 @@ public:
         GPIOHandler(std::string = "") {}
         virtual bool get() const { return false; }
         virtual void set(bool) {}
-        virtual void update_events(const Database::events &events, bool is_inverted) {}
+        virtual void update_events(const Database::events &, bool) {}
         virtual void refresh() {}
     };
 
