@@ -7,6 +7,7 @@
 #include "ics.h"
 #include <chrono>
 #include "date/date.h"
+#include "date/tz.h"
 #include "utils.h"
 #include "log.h"
 
@@ -97,8 +98,8 @@ static int api_list_current_events()
 
 static auto to_locale(auto sys_time)
 {
-    return std::chrono::zoned_seconds{
-        std::chrono::current_zone(),
+    return date::zoned_seconds{
+        date::current_zone(),
         std::chrono::floor<std::chrono::seconds>(sys_time)};
 }
 
